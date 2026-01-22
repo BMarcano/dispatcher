@@ -11,7 +11,6 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'HCP-OPS-SYNC | Crew Scheduling & Payroll',
   description: 'Internal crew scheduling and payroll management tool',
-  generator: 'v0.app',
   icons: {
     icon: [
       {
