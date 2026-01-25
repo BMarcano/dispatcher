@@ -1,7 +1,20 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarIcon, MapPin, Clock, UserPlus, UserMinus } from "lucide-react"
+import { 
+  CalendarIcon, 
+  MapPin, 
+  UserPlus, 
+  ChevronDown, 
+  ChevronUp, 
+  User,
+  Users,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  Trash2
+} from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -12,14 +25,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
@@ -36,89 +41,147 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
-  appointments,
-  availableWorkers,
-  Appointment,
+  jobs as initialJobs,
+  workers,
+  dayAssignments as initialAssignments,
+  getJobDates,
+  getJobDuration,
+  getAssignmentStatus,
+  getWorkerById,
+  Job,
+  DayAssignment,
+  JobStatus,
 } from "@/lib/mock-data"
 
-function formatDate(dateString: string) {
-  const date = new Date(dateString)
+// Status badge styling
+const statusConfig: Record<JobStatus, { label: string; variant: "default" | "secondary" | "outline"; icon: React.ElementType }> = {
+  scheduled: { label: "Scheduled", variant: "secondary", icon: Circle },
+  in_progress: { label: "In Progress", variant: "default", icon: Clock },
+  done: { label: "Done", variant: "outline", icon: CheckCircle2 },
+}
+
+// Assignment status styling
+const assignmentStatusConfig = {
+  not_assigned: { label: "Not Assigned", className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+  partially_assigned: { label: "Partial", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
+  fully_assigned: { label: "Assigned", className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+}
+
+function formatDateDisplay(dateString: string) {
+  const date = new Date(dateString + "T00:00:00")
   return date.toLocaleDateString("en-US", {
+    weekday: "short",
     month: "short",
     day: "numeric",
   })
 }
 
-function formatTimeRange(start: string, end: string) {
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-  return `${formatTime(startDate)} - ${formatTime(endDate)}`
-}
-
 export function PendingQueue() {
   const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined)
-  const [localAppointments, setLocalAppointments] = useState(appointments)
-  const [selectedAppointment, setSelectedAppointment] =
-    useState<Appointment | null>(null)
+  const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all")
+  const [localJobs, setLocalJobs] = useState<Job[]>(initialJobs)
+  const [localAssignments, setLocalAssignments] = useState<DayAssignment[]>(initialAssignments)
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
+  
+  // Dialog state
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false)
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [selectedDays, setSelectedDays] = useState<string[]>([])
   const [selectedWorker, setSelectedWorker] = useState<string>("")
   const [selectedMultiplier, setSelectedMultiplier] = useState<string>("1.0")
-  const [dialogMode, setDialogMode] = useState<"assign" | "unassign">("assign")
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  // Filter appointments based on selected date
-  const filteredAppointments = localAppointments.filter((apt) => {
-    if (!dateFilter) return true
-    const aptDate = new Date(apt.start_time)
-    return (
-      aptDate.getFullYear() === dateFilter.getFullYear() &&
-      aptDate.getMonth() === dateFilter.getMonth() &&
-      aptDate.getDate() === dateFilter.getDate()
+  // Get current assignment status using local state
+  const getLocalAssignmentStatus = (job: Job): "not_assigned" | "partially_assigned" | "fully_assigned" => {
+    const dates = getJobDates(job)
+    const assignedDates = dates.filter(date => 
+      localAssignments.some(da => da.job_id === job.id && da.day_date === date)
     )
-  })
-
-  const handleAssign = (appointment: Appointment) => {
-    setSelectedAppointment(appointment)
-    setDialogMode("assign")
-    setSelectedWorker("")
-    setSelectedMultiplier("1.0")
-    setIsDialogOpen(true)
+    
+    if (assignedDates.length === 0) return "not_assigned"
+    if (assignedDates.length < dates.length) return "partially_assigned"
+    return "fully_assigned"
   }
 
-  const handleUnassign = (appointment: Appointment) => {
-    setSelectedAppointment(appointment)
-    setDialogMode("unassign")
-    setIsDialogOpen(true)
+  // Filter jobs based on selected date and status
+  const filteredJobs = localJobs.filter((job) => {
+    // Status filter
+    if (statusFilter !== "all" && job.status !== statusFilter) return false
+    
+    // Date filter - show job if any of its days match the filter
+    if (dateFilter) {
+      const filterDateStr = dateFilter.toISOString().split('T')[0]
+      const jobDates = getJobDates(job)
+      if (!jobDates.includes(filterDateStr)) return false
+    }
+    
+    return true
+  })
+
+  const toggleExpanded = (jobId: string) => {
+    setExpandedJobs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(jobId)) {
+        newSet.delete(jobId)
+      } else {
+        newSet.add(jobId)
+      }
+      return newSet
+    })
+  }
+
+  const handleOpenAssignDialog = (job: Job) => {
+    setSelectedJob(job)
+    setSelectedDays([])
+    setSelectedWorker("")
+    setSelectedMultiplier("1.0")
+    setIsAssignDialogOpen(true)
+  }
+
+  const handleDayToggle = (date: string) => {
+    setSelectedDays(prev => 
+      prev.includes(date) 
+        ? prev.filter(d => d !== date)
+        : [...prev, date]
+    )
   }
 
   const confirmAssign = () => {
-    if (!selectedAppointment || !selectedWorker) return
-    setLocalAppointments((prev) =>
-      prev.map((apt) =>
-        apt.id === selectedAppointment.id ? { ...apt, status: "assigned" as const } : apt
-      )
-    )
-    setIsDialogOpen(false)
+    if (!selectedJob || !selectedWorker || selectedDays.length === 0) return
+    
+    const newAssignments: DayAssignment[] = selectedDays.map((date, index) => ({
+      id: `da-new-${Date.now()}-${index}`,
+      job_id: selectedJob.id,
+      day_date: date,
+      worker_id: selectedWorker,
+      multiplier: parseFloat(selectedMultiplier) as 1.0 | 0.5,
+    }))
+    
+    setLocalAssignments(prev => [...prev, ...newAssignments])
+    setIsAssignDialogOpen(false)
   }
 
-  const confirmUnassign = () => {
-    if (!selectedAppointment) return
-    setLocalAppointments((prev) =>
-      prev.map((apt) =>
-        apt.id === selectedAppointment.id ? { ...apt, status: "pending" as const } : apt
+  const removeAssignment = (assignmentId: string) => {
+    setLocalAssignments(prev => prev.filter(a => a.id !== assignmentId))
+  }
+
+  const updateJobStatus = (jobId: string, newStatus: JobStatus) => {
+    setLocalJobs(prev => 
+      prev.map(job => 
+        job.id === jobId ? { ...job, status: newStatus } : job
       )
     )
-    setIsDialogOpen(false)
   }
 
   const clearFilter = () => {
     setDateFilter(undefined)
+    setStatusFilter("all")
+  }
+
+  // Get assignments for a job on a specific day (using local state)
+  const getDayAssignments = (jobId: string, date: string) => {
+    return localAssignments.filter(a => a.job_id === jobId && a.day_date === date)
   }
 
   return (
@@ -147,227 +210,339 @@ export function PendingQueue() {
             />
           </PopoverContent>
         </Popover>
-        {dateFilter && (
+        
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as JobStatus | "all")}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="scheduled">Scheduled</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="done">Done</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {(dateFilter || statusFilter !== "all") && (
           <Button variant="ghost" size="sm" onClick={clearFilter}>
-            Clear filter
+            Clear filters
           </Button>
         )}
-        <span className="text-sm text-muted-foreground">
-          {filteredAppointments.length} appointment
-          {filteredAppointments.length !== 1 ? "s" : ""}
+        
+        <span className="text-sm text-muted-foreground ml-auto">
+          {filteredJobs.length} job{filteredJobs.length !== 1 ? "s" : ""}
         </span>
       </div>
 
-      {/* Desktop Table View */}
-      <div className="hidden md:block rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Time</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredAppointments.map((apt) => (
-              <TableRow key={apt.id}>
-                <TableCell className="font-medium">
-                  {formatDate(apt.start_time)}
-                </TableCell>
-                <TableCell>
-                  {formatTimeRange(apt.start_time, apt.end_time)}
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate">
-                  {apt.address}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={apt.status === "pending" ? "secondary" : "default"}
-                  >
-                    {apt.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {apt.status === "pending" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleAssign(apt)}
-                    >
-                      <UserPlus className="mr-1 h-4 w-4" />
-                      Assign
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUnassign(apt)}
-                    >
-                      <UserMinus className="mr-1 h-4 w-4" />
-                      Unassign
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {filteredAppointments.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  No appointments found.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      {/* Jobs List */}
+      <div className="flex flex-col gap-3">
+        {filteredJobs.map((job) => {
+          const jobDates = getJobDates(job)
+          const duration = getJobDuration(job)
+          const isExpanded = expandedJobs.has(job.id)
+          const assignmentStatus = getLocalAssignmentStatus(job)
+          const StatusIcon = statusConfig[job.status].icon
 
-      {/* Mobile Card View */}
-      <div className="flex flex-col gap-3 md:hidden">
-        {filteredAppointments.map((apt) => (
-          <div
-            key={apt.id}
-            className="rounded-lg border bg-card p-4 text-card-foreground"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">
-                    {formatDate(apt.start_time)}
-                  </span>
+          return (
+            <div
+              key={job.id}
+              className="rounded-lg border bg-card text-card-foreground overflow-hidden"
+            >
+              {/* Job Header */}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    {/* Customer Name */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-semibold truncate">{job.customer_name}</span>
+                    </div>
+                    
+                    {/* Address */}
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span className="truncate">{job.address}</span>
+                    </div>
+                    
+                    {/* Date Range */}
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                      <CalendarIcon className="h-4 w-4 shrink-0" />
+                      <span>
+                        {duration === 1 
+                          ? formatDateDisplay(job.start_date)
+                          : `${formatDateDisplay(job.start_date)} → ${formatDateDisplay(job.end_date)} (${duration} days)`
+                        }
+                      </span>
+                    </div>
+
+                    {/* Notes */}
+                    {job.notes && (
+                      <p className="text-sm text-muted-foreground mt-1 italic">
+                        {job.notes}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Status Badges */}
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    {/* Job Status */}
+                    <div className="flex items-center gap-1">
+                      <Select 
+                        value={job.status} 
+                        onValueChange={(v) => updateJobStatus(job.id, v as JobStatus)}
+                      >
+                        <SelectTrigger className="h-7 w-[130px] text-xs">
+                          <StatusIcon className="h-3 w-3 mr-1" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="scheduled">
+                            <span className="flex items-center gap-1">
+                              <Circle className="h-3 w-3" /> Scheduled
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="in_progress">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> In Progress
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="done">
+                            <span className="flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Done
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Assignment Status */}
+                    <Badge 
+                      variant="outline" 
+                      className={cn("text-xs", assignmentStatusConfig[assignmentStatus].className)}
+                    >
+                      {assignmentStatus === "not_assigned" && <AlertCircle className="h-3 w-3 mr-1" />}
+                      {assignmentStatus === "fully_assigned" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                      {assignmentStatus === "partially_assigned" && <Users className="h-3 w-3 mr-1" />}
+                      {assignmentStatusConfig[assignmentStatus].label}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="h-4 w-4" />
-                  <span>{formatTimeRange(apt.start_time, apt.end_time)}</span>
-                </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                  <span>{apt.address}</span>
+
+                {/* Actions Row */}
+                <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenAssignDialog(job)}
+                  >
+                    <UserPlus className="mr-1 h-4 w-4" />
+                    Assign Workers
+                  </Button>
+                  
+                  {duration > 1 || getDayAssignments(job.id, job.start_date).length > 0 ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleExpanded(job.id)}
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp className="mr-1 h-4 w-4" />
+                          Hide Details
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="mr-1 h-4 w-4" />
+                          View Details
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
-              <Badge
-                variant={apt.status === "pending" ? "secondary" : "default"}
-              >
-                {apt.status}
-              </Badge>
-            </div>
-            <div className="mt-3 pt-3 border-t">
-              {apt.status === "pending" ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full bg-transparent"
-                  onClick={() => handleAssign(apt)}
-                >
-                  <UserPlus className="mr-1 h-4 w-4" />
-                  Assign Worker
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full bg-transparent"
-                  onClick={() => handleUnassign(apt)}
-                >
-                  <UserMinus className="mr-1 h-4 w-4" />
-                  Unassign Worker
-                </Button>
+
+              {/* Expanded Day-by-Day View */}
+              {isExpanded && (
+                <div className="border-t bg-muted/30">
+                  {jobDates.map((date) => {
+                    const dayAssignments = getDayAssignments(job.id, date)
+                    
+                    return (
+                      <div key={date} className="p-3 border-b last:border-b-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-sm">
+                            {formatDateDisplay(date)}
+                          </span>
+                          {dayAssignments.length === 0 && (
+                            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">
+                              No workers
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {dayAssignments.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {dayAssignments.map((assignment) => {
+                              const worker = getWorkerById(assignment.worker_id)
+                              return (
+                                <div 
+                                  key={assignment.id}
+                                  className="flex items-center gap-2 bg-background rounded-md px-2 py-1 text-sm border"
+                                >
+                                  <User className="h-3 w-3 text-muted-foreground" />
+                                  <span>{worker?.name || "Unknown"}</span>
+                                  <Badge variant="outline" className="text-xs font-mono">
+                                    {assignment.multiplier}x
+                                  </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                                    onClick={() => removeAssignment(assignment.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">
+                            Click &quot;Assign Workers&quot; to add workers for this day
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
-          </div>
-        ))}
-        {filteredAppointments.length === 0 && (
+          )
+        })}
+
+        {filteredJobs.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <CalendarIcon className="h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-4 text-lg font-semibold">No Appointments</h3>
+            <h3 className="mt-4 text-lg font-semibold">No Jobs Found</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              No appointments match your filter criteria.
+              No jobs match your filter criteria.
             </p>
           </div>
         )}
       </div>
 
-      {/* Assign/Unassign Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+      {/* Assign Workers Dialog */}
+      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {dialogMode === "assign" ? "Assign Worker" : "Unassign Worker"}
-            </DialogTitle>
+            <DialogTitle>Assign Worker</DialogTitle>
             <DialogDescription>
-              {dialogMode === "assign"
-                ? "Select a worker and multiplier for this appointment."
-                : "Are you sure you want to unassign the worker from this appointment?"}
+              Select a worker and the days they will work on this job.
             </DialogDescription>
           </DialogHeader>
-          {selectedAppointment && (
+          
+          {selectedJob && (
             <div className="flex flex-col gap-4 py-2">
+              {/* Job Info */}
               <div className="rounded-md bg-muted p-3 text-sm">
-                <p className="font-medium">
-                  {formatDate(selectedAppointment.start_time)}
-                </p>
-                <p className="text-muted-foreground">
-                  {formatTimeRange(
-                    selectedAppointment.start_time,
-                    selectedAppointment.end_time
+                <p className="font-semibold">{selectedJob.customer_name}</p>
+                <p className="text-muted-foreground">{selectedJob.address}</p>
+                <p className="text-muted-foreground mt-1">
+                  {getJobDuration(selectedJob)} day{getJobDuration(selectedJob) > 1 ? "s" : ""}: {" "}
+                  {formatDateDisplay(selectedJob.start_date)}
+                  {selectedJob.start_date !== selectedJob.end_date && (
+                    <> → {formatDateDisplay(selectedJob.end_date)}</>
                   )}
                 </p>
-                <p className="mt-1">{selectedAppointment.address}</p>
               </div>
-              {dialogMode === "assign" && (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="worker">Worker</Label>
-                    <Select
-                      value={selectedWorker}
-                      onValueChange={setSelectedWorker}
-                    >
-                      <SelectTrigger id="worker">
-                        <SelectValue placeholder="Select a worker" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableWorkers.map((worker) => (
-                          <SelectItem key={worker} value={worker}>
-                            {worker}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="multiplier">Multiplier</Label>
-                    <Select
-                      value={selectedMultiplier}
-                      onValueChange={setSelectedMultiplier}
-                    >
-                      <SelectTrigger id="multiplier">
-                        <SelectValue placeholder="Select multiplier" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1.0">1.0x (Full)</SelectItem>
-                        <SelectItem value="0.5">0.5x (Half)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
+
+              {/* Worker Selection */}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="worker">Worker</Label>
+                <Select value={selectedWorker} onValueChange={setSelectedWorker}>
+                  <SelectTrigger id="worker">
+                    <SelectValue placeholder="Select a worker" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {workers.map((worker) => (
+                      <SelectItem key={worker.id} value={worker.id}>
+                        {worker.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Day Selection */}
+              <div className="flex flex-col gap-2">
+                <Label>Days to Assign</Label>
+                <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
+                  {getJobDates(selectedJob).map((date) => {
+                    const existingAssignments = getDayAssignments(selectedJob.id, date)
+                    const alreadyAssigned = selectedWorker && existingAssignments.some(a => a.worker_id === selectedWorker)
+                    
+                    return (
+                      <div 
+                        key={date} 
+                        className={cn(
+                          "flex items-center justify-between p-2 rounded-md border",
+                          alreadyAssigned && "opacity-50"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id={`day-${date}`}
+                            checked={selectedDays.includes(date)}
+                            onCheckedChange={() => handleDayToggle(date)}
+                            disabled={alreadyAssigned}
+                          />
+                          <label 
+                            htmlFor={`day-${date}`}
+                            className="text-sm cursor-pointer"
+                          >
+                            {formatDateDisplay(date)}
+                          </label>
+                        </div>
+                        {existingAssignments.length > 0 && (
+                          <div className="flex items-center gap-1">
+                            <Users className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">
+                              {existingAssignments.length} assigned
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Multiplier Selection */}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="multiplier">Pay Multiplier</Label>
+                <Select value={selectedMultiplier} onValueChange={setSelectedMultiplier}>
+                  <SelectTrigger id="multiplier">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1.0">1.0x (Full Day)</SelectItem>
+                    <SelectItem value="0.5">0.5x (Half Day)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>
               Cancel
             </Button>
-            {dialogMode === "assign" ? (
-              <Button onClick={confirmAssign} disabled={!selectedWorker}>
-                Assign
-              </Button>
-            ) : (
-              <Button variant="destructive" onClick={confirmUnassign}>
-                Unassign
-              </Button>
-            )}
+            <Button 
+              onClick={confirmAssign} 
+              disabled={!selectedWorker || selectedDays.length === 0}
+            >
+              Assign to {selectedDays.length} day{selectedDays.length !== 1 ? "s" : ""}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

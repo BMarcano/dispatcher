@@ -37,7 +37,7 @@ export function AppSidebar() {
 
   const supervisorNav = [
     {
-      title: "Pending Queue",
+      title: "Job Management",
       href: "/supervisor/pending",
       icon: ClipboardList,
     },

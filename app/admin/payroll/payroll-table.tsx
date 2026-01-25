@@ -1,6 +1,6 @@
 "use client"
 
-import { Download, DollarSign } from "lucide-react"
+import { Download, DollarSign, Users, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { payrollSnapshots } from "@/lib/mock-data"
+import { payrollSnapshots, workers } from "@/lib/mock-data"
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
@@ -21,8 +21,8 @@ function formatCurrency(amount: number) {
 }
 
 function formatDateRange(start: string, end: string) {
-  const startDate = new Date(start)
-  const endDate = new Date(end)
+  const startDate = new Date(start + "T00:00:00")
+  const endDate = new Date(end + "T00:00:00")
   const formatDate = (date: Date) =>
     date.toLocaleDateString("en-US", {
       month: "short",
@@ -33,15 +33,16 @@ function formatDateRange(start: string, end: string) {
 
 export function PayrollTable() {
   const handleDownloadCSV = () => {
-    // Mock CSV download behavior
     const headers = [
+      "Worker ID",
       "Worker Name",
       "Week Range",
-      "Days Counted",
-      "Rate Snapshot",
+      "Days Worked",
+      "Daily Rate",
       "Total",
     ]
     const rows = payrollSnapshots.map((p) => [
+      p.worker_id,
       p.worker_name,
       `${p.week_start} to ${p.week_end}`,
       p.unique_days.toString(),
@@ -57,7 +58,7 @@ export function PayrollTable() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.setAttribute("href", url)
-    link.setAttribute("download", "payroll_export.csv")
+    link.setAttribute("download", `payroll_export_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
@@ -66,12 +67,13 @@ export function PayrollTable() {
 
   // Calculate totals
   const totalPayroll = payrollSnapshots.reduce((sum, p) => sum + p.total, 0)
-  const uniqueWorkers = new Set(payrollSnapshots.map((p) => p.worker_name)).size
+  const uniqueWorkers = new Set(payrollSnapshots.map((p) => p.worker_id)).size
+  const totalDaysWorked = payrollSnapshots.reduce((sum, p) => sum + p.unique_days, 0)
 
   return (
     <div className="flex flex-col gap-6">
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Payroll</CardTitle>
@@ -86,13 +88,25 @@ export function PayrollTable() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Workers</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Active Workers</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{uniqueWorkers}</div>
             <p className="text-xs text-muted-foreground">
-              Unique workers with payroll
+              Of {workers.length} total workers
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Days Worked</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalDaysWorked}</div>
+            <p className="text-xs text-muted-foreground">
+              Across all workers
             </p>
           </CardContent>
         </Card>
@@ -104,7 +118,7 @@ export function PayrollTable() {
           <CardContent>
             <div className="text-2xl font-bold">{payrollSnapshots.length}</div>
             <p className="text-xs text-muted-foreground">
-              Total payroll snapshots
+              Weekly snapshots
             </p>
           </CardContent>
         </Card>
@@ -126,14 +140,14 @@ export function PayrollTable() {
             <TableRow>
               <TableHead>Worker Name</TableHead>
               <TableHead>Week Range</TableHead>
-              <TableHead className="text-center">Days Counted</TableHead>
-              <TableHead className="text-right">Rate Snapshot</TableHead>
+              <TableHead className="text-center">Days Worked</TableHead>
+              <TableHead className="text-right">Daily Rate</TableHead>
               <TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {payrollSnapshots.map((snapshot, index) => (
-              <TableRow key={`${snapshot.worker_name}-${snapshot.week_start}-${index}`}>
+              <TableRow key={`${snapshot.worker_id}-${snapshot.week_start}-${index}`}>
                 <TableCell className="font-medium">
                   {snapshot.worker_name}
                 </TableCell>
@@ -144,7 +158,7 @@ export function PayrollTable() {
                   {snapshot.unique_days}
                 </TableCell>
                 <TableCell className="text-right font-mono">
-                  {formatCurrency(snapshot.rate_snapshot)}/hr
+                  {formatCurrency(snapshot.rate_snapshot)}/day
                 </TableCell>
                 <TableCell className="text-right font-mono font-semibold">
                   {formatCurrency(snapshot.total)}
@@ -158,7 +172,7 @@ export function PayrollTable() {
       {/* Mobile Card View */}
       <div className="flex flex-col gap-3 md:hidden">
         {payrollSnapshots.map((snapshot, index) => (
-          <Card key={`${snapshot.worker_name}-${snapshot.week_start}-${index}`}>
+          <Card key={`${snapshot.worker_id}-${snapshot.week_start}-${index}`}>
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -179,8 +193,8 @@ export function PayrollTable() {
                   <p className="font-medium">{snapshot.unique_days}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Rate</p>
-                  <p className="font-mono">{formatCurrency(snapshot.rate_snapshot)}/hr</p>
+                  <p className="text-muted-foreground">Daily Rate</p>
+                  <p className="font-mono">{formatCurrency(snapshot.rate_snapshot)}</p>
                 </div>
               </div>
             </CardContent>

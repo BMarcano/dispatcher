@@ -1,13 +1,13 @@
 "use client"
 
-import { MapPin, Clock, Calendar } from "lucide-react"
+import { MapPin, Clock, Calendar, User, Users, CheckCircle2, Circle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useRole } from "@/lib/role-context"
-import { getWorkerAssignments } from "@/lib/mock-data"
+import { getWorkerAssignments, getWorkerByName, JobStatus } from "@/lib/mock-data"
 
 function formatDate(dateString: string) {
-  const date = new Date(dateString)
+  const date = new Date(dateString + "T00:00:00")
   return date.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
@@ -15,23 +15,25 @@ function formatDate(dateString: string) {
   })
 }
 
-function formatTimeRange(start: string, end: string) {
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-  return `${formatTime(startDate)} - ${formatTime(endDate)}`
+const statusConfig: Record<JobStatus, { label: string; variant: "default" | "secondary" | "outline" }> = {
+  scheduled: { label: "Scheduled", variant: "secondary" },
+  in_progress: { label: "In Progress", variant: "default" },
+  done: { label: "Done", variant: "outline" },
 }
 
 export function AssignmentList() {
   const { workerName } = useRole()
-  const assignments = getWorkerAssignments(workerName)
+  
+  // Get worker by name and then get their assignments
+  const worker = getWorkerByName(workerName)
+  const assignments = worker ? getWorkerAssignments(worker.id) : []
 
-  if (assignments.length === 0) {
+  // Sort assignments by date
+  const sortedAssignments = [...assignments].sort((a, b) => 
+    new Date(a.day_date).getTime() - new Date(b.day_date).getTime()
+  )
+
+  if (sortedAssignments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Calendar className="h-12 w-12 text-muted-foreground" />
@@ -43,55 +45,103 @@ export function AssignmentList() {
     )
   }
 
+  // Group assignments by date for better organization
+  const groupedByDate = sortedAssignments.reduce((acc, assignment) => {
+    const date = assignment.day_date
+    if (!acc[date]) {
+      acc[date] = []
+    }
+    acc[date].push(assignment)
+    return acc
+  }, {} as Record<string, typeof sortedAssignments>)
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">
-        Showing {assignments.length} assignment
-        {assignments.length !== 1 ? "s" : ""}
+        Showing {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? "s" : ""}
       </p>
-      {assignments.map((assignment) => (
-        <Card key={assignment?.id} className="overflow-hidden">
-          <CardContent className="p-0">
-            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-4 w-4 shrink-0" />
-                  <span>{formatDate(assignment?.start_time || "")}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="h-4 w-4 shrink-0" />
-                  <span>
-                    {formatTimeRange(
-                      assignment?.start_time || "",
-                      assignment?.end_time || ""
+      
+      {Object.entries(groupedByDate).map(([date, dayAssignments]) => (
+        <div key={date} className="flex flex-col gap-3">
+          {/* Date Header */}
+          <div className="flex items-center gap-2 pb-2 border-b">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span className="font-semibold">{formatDate(date)}</span>
+            <Badge variant="outline" className="ml-auto">
+              {dayAssignments.length} job{dayAssignments.length !== 1 ? "s" : ""}
+            </Badge>
+          </div>
+
+          {/* Jobs for this date */}
+          {dayAssignments.map((assignment) => {
+            const job = assignment.job
+            if (!job) return null
+
+            const jobStatus = statusConfig[job.status]
+            const coworkers = assignment.coworkers || []
+
+            return (
+              <Card key={assignment.id} className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="p-4">
+                    {/* Customer Name - Primary Info */}
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-semibold">{job.customer_name}</span>
+                      </div>
+                      <Badge variant={jobStatus.variant}>
+                        {job.status === "done" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                        {job.status === "scheduled" && <Circle className="h-3 w-3 mr-1" />}
+                        {job.status === "in_progress" && <Clock className="h-3 w-3 mr-1" />}
+                        {jobStatus.label}
+                      </Badge>
+                    </div>
+
+                    {/* Address */}
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground mb-2">
+                      <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>{job.address}</span>
+                    </div>
+
+                    {/* Notes if any */}
+                    {job.notes && (
+                      <p className="text-sm text-muted-foreground italic mb-2">
+                        {job.notes}
+                      </p>
                     )}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                  <span>{assignment?.address}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-                <Badge
-                  variant={
-                    assignment?.status === "assigned" ? "default" : "secondary"
-                  }
-                >
-                  {assignment?.status === "assigned" ? "Confirmed" : "Pending"}
-                </Badge>
-                <Badge
-                  variant={
-                    assignment?.multiplier === 1.0 ? "outline" : "secondary"
-                  }
-                  className="font-mono"
-                >
-                  {assignment?.multiplier}x
-                </Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+
+                    {/* Coworkers */}
+                    {coworkers.length > 0 && (
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+                        <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm text-muted-foreground">Working with:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {coworkers.map((coworker) => (
+                            <Badge key={coworker?.id} variant="secondary" className="text-xs">
+                              {coworker?.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pay Info */}
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                      <span className="text-sm text-muted-foreground">Pay multiplier</span>
+                      <Badge
+                        variant={assignment.multiplier === 1.0 ? "default" : "secondary"}
+                        className="font-mono"
+                      >
+                        {assignment.multiplier}x {assignment.multiplier === 1.0 ? "(Full Day)" : "(Half Day)"}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       ))}
     </div>
   )

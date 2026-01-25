@@ -5,7 +5,7 @@ import { PendingQueue } from "./pending-queue"
 
 export default function SupervisorPendingPage() {
   return (
-    <AppShell title="Pending Queue">
+    <AppShell title="Job Management">
       <PendingQueue />
     </AppShell>
   )

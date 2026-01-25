@@ -43,6 +43,9 @@ export default function LoginPage() {
       case "supervisor":
         router.push("/supervisor/pending")
         break
+      case "admin":
+        router.push("/admin/payroll")
+        break
     }
   }
 
@@ -94,6 +97,7 @@ export default function LoginPage() {
                 <SelectContent>
                   <SelectItem value="worker">Worker</SelectItem>
                   <SelectItem value="supervisor">Supervisor</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
