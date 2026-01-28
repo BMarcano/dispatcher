@@ -1,6 +1,6 @@
 "use client"
 
-import { Download, DollarSign, Users, Calendar } from "lucide-react"
+import { Download, DollarSign, Users, Calendar, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -11,7 +11,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { payrollSnapshots, workers } from "@/lib/mock-data"
+import { usePayrollSnapshots } from "@/lib/supabase/hooks"
+import { useWorkers } from "@/lib/supabase/hooks"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
@@ -32,7 +34,14 @@ function formatDateRange(start: string, end: string) {
 }
 
 export function PayrollTable() {
+  const { snapshots: payrollSnapshots, loading: payrollLoading, error: payrollError } = usePayrollSnapshots()
+  const { workers, loading: workersLoading } = useWorkers()
+
+  const loading = payrollLoading || workersLoading
+
   const handleDownloadCSV = () => {
+    if (!payrollSnapshots || payrollSnapshots.length === 0) return
+
     const headers = [
       "Worker ID",
       "Worker Name",
@@ -66,9 +75,27 @@ export function PayrollTable() {
   }
 
   // Calculate totals
-  const totalPayroll = payrollSnapshots.reduce((sum, p) => sum + p.total, 0)
+  const totalPayroll = payrollSnapshots.reduce((sum, p) => sum + Number(p.total), 0)
   const uniqueWorkers = new Set(payrollSnapshots.map((p) => p.worker_id)).size
   const totalDaysWorked = payrollSnapshots.reduce((sum, p) => sum + p.unique_days, 0)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (payrollError) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          Error al cargar los datos de nómina: {payrollError.message}
+        </AlertDescription>
+      </Alert>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">

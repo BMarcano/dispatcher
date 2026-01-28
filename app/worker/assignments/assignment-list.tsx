@@ -1,10 +1,11 @@
 "use client"
 
-import { MapPin, Clock, Calendar, User, Users, CheckCircle2, Circle } from "lucide-react"
+import { MapPin, Clock, Calendar, User, Users, CheckCircle2, Circle, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useRole } from "@/lib/role-context"
-import { getWorkerAssignments, getWorkerByName, JobStatus } from "@/lib/mock-data"
+import { useWorkerAssignments } from "@/lib/supabase/hooks"
+import type { JobStatus } from "@/lib/supabase/types"
 
 function formatDate(dateString: string) {
   const date = new Date(dateString + "T00:00:00")
@@ -22,11 +23,28 @@ const statusConfig: Record<JobStatus, { label: string; variant: "default" | "sec
 }
 
 export function AssignmentList() {
-  const { workerName } = useRole()
-  
-  // Get worker by name and then get their assignments
-  const worker = getWorkerByName(workerName)
-  const assignments = worker ? getWorkerAssignments(worker.id) : []
+  const { worker } = useRole()
+  const { assignments, loading, error } = useWorkerAssignments(worker?.id || null)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <Calendar className="h-12 w-12 text-muted-foreground" />
+        <h3 className="mt-4 text-lg font-semibold">Error</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {error.message}
+        </p>
+      </div>
+    )
+  }
 
   // Sort assignments by date
   const sortedAssignments = [...assignments].sort((a, b) => 

@@ -1,16 +1,31 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { LogOut } from "lucide-react"
 import { useRole } from "@/lib/role-context"
+import { useAuth } from "@/lib/supabase/use-auth"
 
 interface AppHeaderProps {
   title: string
 }
 
 export function AppHeader({ title }: AppHeaderProps) {
+  const router = useRouter()
   const { role, workerName } = useRole()
+  const { signOut } = useAuth()
+
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+      router.push("/login")
+    } catch (error) {
+      console.error("Error signing out:", error)
+    }
+  }
 
   const getRoleBadgeVariant = () => {
     switch (role) {
@@ -45,10 +60,19 @@ export function AppHeader({ title }: AppHeaderProps) {
       <div className="flex flex-1 items-center justify-between">
         <h1 className="text-lg font-semibold">{title}</h1>
         <div className="flex items-center gap-3">
-          {role === "worker" && (
+          {role === "worker" && workerName && (
             <span className="text-sm text-muted-foreground">{workerName}</span>
           )}
           <Badge variant={getRoleBadgeVariant()}>{getRoleLabel()}</Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSignOut}
+            className="gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Salir
+          </Button>
         </div>
       </div>
     </header>

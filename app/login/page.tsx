@@ -4,7 +4,7 @@ import React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Settings } from "lucide-react"
+import { Settings, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,37 +15,49 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { useRole, UserRole } from "@/lib/role-context"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useAuth } from "@/lib/supabase/use-auth"
+import { useRole } from "@/lib/role-context"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { setRole } = useRole()
+  const { signIn, loading: authLoading } = useAuth()
+  const { role, isAuthenticated, loading: roleLoading } = useRole()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [selectedRole, setSelectedRole] = useState<UserRole>("worker")
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Redirect if already authenticated
+  React.useEffect(() => {
+    if (!roleLoading && isAuthenticated && role) {
+      switch (role) {
+        case "worker":
+          router.push("/worker/assignments")
+          break
+        case "supervisor":
+          router.push("/supervisor/pending")
+          break
+        case "admin":
+          router.push("/admin/payroll")
+          break
+      }
+    }
+  }, [isAuthenticated, role, roleLoading, router])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setRole(selectedRole)
-    
-    // Navigate to the appropriate dashboard based on role
-    switch (selectedRole) {
-      case "worker":
-        router.push("/worker/assignments")
-        break
-      case "supervisor":
-        router.push("/supervisor/pending")
-        break
-      case "admin":
-        router.push("/admin/payroll")
-        break
+    setError(null)
+    setIsLoading(true)
+
+    try {
+      await signIn(email, password)
+      // The redirect will happen via the useEffect above
+    } catch (err: any) {
+      console.error('Login error:', err)
+      setError(err.message || "Error al iniciar sesión. Verifica tus credenciales.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -62,6 +74,12 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="email">Email</Label>
@@ -72,6 +90,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isLoading || authLoading}
               />
             </div>
             <div className="flex flex-col gap-2">
@@ -83,29 +102,22 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={isLoading || authLoading}
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="role">Role (Demo Only)</Label>
-              <Select
-                value={selectedRole}
-                onValueChange={(value: UserRole) => setSelectedRole(value)}
-              >
-                <SelectTrigger id="role">
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="worker">Worker</SelectItem>
-                  <SelectItem value="supervisor">Supervisor</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Select a role to preview different dashboards
-              </p>
-            </div>
-            <Button type="submit" className="mt-2 w-full">
-              Continue
+            <Button 
+              type="submit" 
+              className="mt-2 w-full"
+              disabled={isLoading || authLoading}
+            >
+              {isLoading || authLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Iniciando sesión...
+                </>
+              ) : (
+                "Iniciar Sesión"
+              )}
             </Button>
           </form>
         </CardContent>
